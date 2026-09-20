@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from psycopg import Connection, sql
+from typing import Any
 
 from src.config import TABLES, validate_table_name
+from src.database.dialect import is_sqlserver, qualified_table, transaction
 
 CHILD_TABLES = {
     "navire_peche_anonymise": "navire_moteur",
@@ -53,6 +54,14 @@ TABLE_DEFINITIONS = {
     "capture_zone": """capture_id VARCHAR(255) NOT NULL, zone_peche_id VARCHAR(255) NOT NULL, label VARCHAR(4000), CONSTRAINT pk_capture_zone PRIMARY KEY (capture_id, zone_peche_id), CONSTRAINT fk_capture_zone_capture FOREIGN KEY (capture_id) REFERENCES env_mer.capture_peche(capture_id) ON DELETE CASCADE""",
 }
 
+# SQL Server emploie des noms différents pour quelques types PostgreSQL.
+SQLSERVER_TABLE_DEFINITIONS = {
+    table_name: definition.replace("DOUBLE PRECISION", "FLOAT")
+    .replace("BOOLEAN", "BIT")
+    .replace(" TEXT", " VARCHAR(MAX)")
+    for table_name, definition in TABLE_DEFINITIONS.items()
+}
+
 INDEX_DEFINITIONS = {
     "pecheur_anonymise": "CREATE INDEX idx_pecheur_navire_id ON env_mer.pecheur_anonymise(carte_autorisation_navire_id)",
     "campagne_peche": "CREATE INDEX idx_campagne_carte_id ON env_mer.campagne_peche(campagne_carte_id)",
@@ -92,31 +101,64 @@ def validate_reset_scope(table_names: list[str]) -> None:
             )
 
 
-def reset_tables(connection: Connection, table_names: list[str]) -> None:
+def reset_tables(connection: Any, table_names: list[str]) -> None:
     """Reconstruit atomiquement les tables et index demandés."""
     validate_reset_scope(table_names)
     children = [CHILD_TABLES[name] for name in table_names if name in CHILD_TABLES]
-    with connection.transaction():
+    sqlserver = is_sqlserver(connection)
+    definitions = SQLSERVER_TABLE_DEFINITIONS if sqlserver else TABLE_DEFINITIONS
+    placeholder = "?" if sqlserver else "%s"
+    with transaction(connection):
         with connection.cursor() as cursor:
-            cursor.execute("CREATE SCHEMA IF NOT EXISTS env_mer")
-            if "campagne_peche" in table_names:
-                cursor.execute("DROP TABLE IF EXISTS env_mer.frais CASCADE")
+            if sqlserver:
+                cursor.execute(
+                    "IF SCHEMA_ID(N'env_mer') IS NULL "
+                    "EXEC(N'CREATE SCHEMA [env_mer]')"
+                )
+            else:
+                cursor.execute("CREATE SCHEMA IF NOT EXISTS env_mer")
             for table_name in reversed(children):
-                cursor.execute(sql.SQL("DROP TABLE IF EXISTS env_mer.{}").format(sql.Identifier(table_name)))
+                cursor.execute(
+                    f"DROP TABLE IF EXISTS "
+                    f"{qualified_table(table_name, sqlserver=sqlserver)}"
+                )
+            if "campagne_peche" in table_names:
+                suffix = "" if sqlserver else " CASCADE"
+                cursor.execute(
+                    f"DROP TABLE IF EXISTS "
+                    f"{qualified_table('frais', sqlserver=sqlserver)}{suffix}"
+                )
             for table_name in reversed(TABLES):
                 if table_name in table_names:
-                    cursor.execute(sql.SQL("DROP TABLE IF EXISTS env_mer.{}").format(sql.Identifier(table_name)))
+                    cursor.execute(
+                        f"DROP TABLE IF EXISTS "
+                        f"{qualified_table(table_name, sqlserver=sqlserver)}"
+                    )
             for table_name in TABLES:
                 if table_name in table_names:
-                    cursor.execute(sql.SQL("CREATE TABLE env_mer.{} ({})").format(sql.Identifier(table_name), sql.SQL(TABLE_DEFINITIONS[table_name])))
+                    cursor.execute(
+                        f"CREATE TABLE "
+                        f"{qualified_table(table_name, sqlserver=sqlserver)} "
+                        f"({definitions[table_name]})"
+                    )
                     if table_name == "campagne_peche":
-                        cursor.execute("CREATE TABLE env_mer.frais ({})".format(TABLE_DEFINITIONS["frais"]))
+                        cursor.execute(
+                            f"CREATE TABLE "
+                            f"{qualified_table('frais', sqlserver=sqlserver)} "
+                            f"({definitions['frais']})"
+                        )
                         cursor.executemany(
-                            "INSERT INTO env_mer.frais (frais_id, libelle) VALUES (%s, %s)",
+                            f"INSERT INTO "
+                            f"{qualified_table('frais', sqlserver=sqlserver)} "
+                            f"(frais_id, libelle) VALUES ({placeholder}, {placeholder})",
                             FRAIS.items(),
                         )
             for table_name in children:
-                cursor.execute(sql.SQL("CREATE TABLE env_mer.{} ({})").format(sql.Identifier(table_name), sql.SQL(TABLE_DEFINITIONS[table_name])))
+                cursor.execute(
+                    f"CREATE TABLE "
+                    f"{qualified_table(table_name, sqlserver=sqlserver)} "
+                    f"({definitions[table_name]})"
+                )
             for table_name in managed_tables(table_names):
                 if table_name in INDEX_DEFINITIONS:
                     cursor.execute(INDEX_DEFINITIONS[table_name])

@@ -7,9 +7,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
-
-from psycopg import Connection
 
 from src.api.province_sud_client import ProvinceSudClient
 from src.database.repository import count_rows, insert_page
@@ -136,7 +135,7 @@ def download_tables(
 
 
 def import_table(
-    connection: Connection,
+    connection: Any,
     table_name: str,
     raw_data_dir: Path,
     pages: int = 0,

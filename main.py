@@ -5,8 +5,6 @@ import logging
 import sys
 import time
 
-import psycopg
-
 from src.api.province_sud_client import ProvinceSudClient
 from src.config import TABLES, load_settings, validate_table_name
 from src.database.connection import check_connection, connect
@@ -145,13 +143,6 @@ def run() -> int:
                         "%s — non nulles : %d, valides : %d, orphelines : %d",
                         relation, non_null, valid, orphans,
                     )
-    except psycopg.OperationalError as exc:
-        logging.error(
-            "Impossible de se connecter à PostgreSQL.\n\n"
-            "Vérifiez que le conteneur est démarré avec :\n\n"
-            "docker compose up -d\n\nDétail : %s", exc,
-        )
-        return 1
     except Exception as exc:
         logging.error("Extraction interrompue : %s", exc)
         return 1

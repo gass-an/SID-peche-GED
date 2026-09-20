@@ -1,5 +1,9 @@
 from src.config import TABLES
-from src.database.schema import TABLE_DEFINITIONS, managed_tables
+from src.database.schema import (
+    SQLSERVER_TABLE_DEFINITIONS,
+    TABLE_DEFINITIONS,
+    managed_tables,
+)
 
 
 EXPECTED_TABLES = {
@@ -26,3 +30,13 @@ def test_schema_defines_the_eight_expected_foreign_keys() -> None:
     """Vérifie la présence des huit clés étrangères attendues."""
     definitions = " ".join(TABLE_DEFINITIONS[name] for name in EXPECTED_TABLES)
     assert definitions.count("FOREIGN KEY") == 8
+
+
+def test_sqlserver_schema_uses_compatible_data_types() -> None:
+    """Vérifie la conversion des types propres à PostgreSQL."""
+    definitions = " ".join(SQLSERVER_TABLE_DEFINITIONS.values())
+
+    assert "DOUBLE PRECISION" not in definitions
+    assert "BOOLEAN" not in definitions
+    assert " FLOAT" in definitions
+    assert " BIT" in definitions

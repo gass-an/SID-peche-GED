@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+from typing import Any
+
 import psycopg
-from psycopg import Connection
 
 from src.config import Settings
 
 
-def connect(settings: Settings) -> Connection:
-    """Ouvre une connexion PostgreSQL à partir des paramètres applicatifs."""
-    return psycopg.connect(**settings.postgres_kwargs)
+def connect(settings: Settings) -> Any:
+    """Ouvre une connexion avec le moteur sélectionné dans la configuration."""
+    if settings.db_engine == "postgresql":
+        return psycopg.connect(**settings.postgres_kwargs)
+
+    # Import différé : PostgreSQL reste utilisable sans pilote SQL Server.
+    import pyodbc
+
+    return pyodbc.connect(settings.sqlserver_connection_string)
 
 
-def check_connection(connection: Connection) -> None:
+def check_connection(connection: Any) -> None:
     """Vérifie que la connexion répond puis clôt la transaction de contrôle."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")

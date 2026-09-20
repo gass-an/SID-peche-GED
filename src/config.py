@@ -14,16 +14,19 @@ TABLES = [
     "capture_peche",
 ]
 API_BASE_URL = "https://www.province-sud.nc/drhouseweb/api/UNC_WEB/env_mer"
+DATABASE_ENGINES = {"postgresql", "sqlserver"}
 
 
 @dataclass(frozen=True)
 class Settings:
     api_key: str
+    db_engine: str
     postgres_host: str
     postgres_port: int
     postgres_db: str
     postgres_user: str
     postgres_password: str
+    sqlserver_connection_string: str
     http_timeout: float
     raw_data_dir: Path
 
@@ -43,6 +46,10 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
     """Charge et valide la configuration depuis les variables d'environnement."""
     load_dotenv()
     api_key = os.getenv("PROVINCE_SUD_API_KEY", "").strip()
+    db_engine = os.getenv("DB_ENGINE", "postgresql").strip().lower()
+    if db_engine not in DATABASE_ENGINES:
+        allowed = ", ".join(sorted(DATABASE_ENGINES))
+        raise ValueError(f"DB_ENGINE doit valoir {allowed}.")
     if require_api_key and not api_key:
         raise ValueError(
             "PROVINCE_SUD_API_KEY est absente. Renseignez-la dans le fichier .env."
@@ -54,13 +61,22 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
         raise ValueError("POSTGRES_PORT et HTTP_TIMEOUT doivent être numériques.") from exc
     if timeout <= 0:
         raise ValueError("HTTP_TIMEOUT doit être strictement positif.")
+    sqlserver_connection_string = os.getenv(
+        "SQLSERVER_CONNECTION_STRING", ""
+    ).strip()
+    if db_engine == "sqlserver" and not sqlserver_connection_string:
+        raise ValueError(
+            "SQLSERVER_CONNECTION_STRING est absente pour DB_ENGINE=sqlserver."
+        )
     return Settings(
         api_key=api_key,
+        db_engine=db_engine,
         postgres_host=os.getenv("POSTGRES_HOST", "localhost"),
         postgres_port=port,
         postgres_db=os.getenv("POSTGRES_DB", "peche_nc"),
         postgres_user=os.getenv("POSTGRES_USER", "admin"),
         postgres_password=os.getenv("POSTGRES_PASSWORD", "admin"),
+        sqlserver_connection_string=sqlserver_connection_string,
         http_timeout=timeout,
         raw_data_dir=Path(__file__).resolve().parent.parent / "data" / "raw",
     )
