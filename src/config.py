@@ -29,6 +29,7 @@ class Settings:
 
     @property
     def postgres_kwargs(self) -> dict[str, object]:
+        """Retourne les paramètres de connexion attendus par psycopg."""
         return {
             "host": self.postgres_host,
             "port": self.postgres_port,
@@ -39,6 +40,7 @@ class Settings:
 
 
 def load_settings(*, require_api_key: bool = True) -> Settings:
+    """Charge et valide la configuration depuis les variables d'environnement."""
     load_dotenv()
     api_key = os.getenv("PROVINCE_SUD_API_KEY", "").strip()
     if require_api_key and not api_key:
@@ -65,6 +67,7 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
 
 
 def validate_table_name(table_name: str) -> str:
+    """Valide le nom d'une table source et le retourne inchangé."""
     if table_name not in TABLES:
         allowed = ", ".join(TABLES)
         raise ValueError(f"Table inconnue : {table_name}. Tables autorisées : {allowed}")

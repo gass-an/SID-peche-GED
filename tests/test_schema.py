@@ -17,10 +17,12 @@ EXPECTED_TABLES = {
 
 
 def test_schema_contains_exactly_the_ten_expected_tables() -> None:
+    """Vérifie que le schéma contient exactement les dix tables prévues."""
     assert set(managed_tables(TABLES)) == EXPECTED_TABLES
     assert EXPECTED_TABLES <= TABLE_DEFINITIONS.keys()
 
 
 def test_schema_defines_the_eight_expected_foreign_keys() -> None:
+    """Vérifie la présence des huit clés étrangères attendues."""
     definitions = " ".join(TABLE_DEFINITIONS[name] for name in EXPECTED_TABLES)
     assert definitions.count("FOREIGN KEY") == 8

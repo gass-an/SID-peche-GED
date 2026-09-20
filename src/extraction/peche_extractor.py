@@ -40,6 +40,7 @@ class ExtractionResult:
 
 
 def _write_json_item(handle: object, row: dict[str, object], first: bool) -> bool:
+    """Écrit un objet dans un tableau JSON en gérant son séparateur."""
     if not first:
         handle.write(",\n")  # type: ignore[attr-defined]
     serialized = json.dumps(row, ensure_ascii=False, indent=2)
@@ -50,6 +51,7 @@ def _write_json_item(handle: object, row: dict[str, object], first: bool) -> boo
 def _download_table(
     client: ProvinceSudClient, table_name: str, target: Path
 ) -> DownloadResult:
+    """Télécharge une table vers un fichier JSON et mesure l'opération."""
     pages = rows_count = 0
     first = True
     progress = ProgressDisplay(f"Téléchargement {table_name}")
@@ -72,6 +74,7 @@ def _download_table(
 
 
 def _rotate_archives(archive_dir: Path, retention: int) -> None:
+    """Supprime les instantanés dépassant la durée de rétention demandée."""
     snapshots = (
         sorted((path for path in archive_dir.iterdir() if path.is_dir()), reverse=True)
         if archive_dir.exists()

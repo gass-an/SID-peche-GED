@@ -9,10 +9,12 @@ TABLE_WIDTH = 34
 
 
 def format_count(value: int, width: int = 0) -> str:
+    """Formate un entier avec séparateurs de milliers et largeur minimale."""
     return f"{value:>{width},}".replace(",", " ")
 
 
 def format_duration(seconds: float) -> str:
+    """Formate une durée en heures, minutes et secondes."""
     total = max(0, int(seconds))
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -30,6 +32,7 @@ class ProgressDisplay:
         clock: Callable[[], float] = time.monotonic,
         refresh_interval: float = 0.2,
     ) -> None:
+        """Initialise l'affichage et mémorise son instant de départ."""
         self.table_name = table_name
         self.stream = stream
         self.clock = clock
@@ -39,6 +42,7 @@ class ProgressDisplay:
         self.rows = 0
 
     def _line(self, now: float) -> str:
+        """Construit la ligne d'état correspondant à l'instant fourni."""
         return (
             f"{self.table_name:<{TABLE_WIDTH}} | "
             f"{format_count(self.rows, 10)} lignes | "
@@ -46,6 +50,7 @@ class ProgressDisplay:
         )
 
     def update(self, page_rows: int, child_rows: int = 0) -> None:
+        """Ajoute les lignes d'une page et rafraîchit l'affichage si nécessaire."""
         del child_rows
         self.rows += page_rows
         now = self.clock()
@@ -55,10 +60,12 @@ class ProgressDisplay:
         self.last_refresh = now
 
     def finish(self) -> float:
+        """Affiche l'état final et retourne la durée totale."""
         now = self.clock()
         elapsed = now - self.started_at
         print(f"\r{self._line(now)}", file=self.stream, flush=True)
         return elapsed
 
     def abort(self) -> None:
+        """Termine proprement la ligne d'affichage après une erreur."""
         print(file=self.stream, flush=True)

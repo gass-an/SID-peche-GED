@@ -13,10 +13,12 @@ class NormalizedRows:
 
 
 def _parent(row: dict[str, Any], table_name: str) -> dict[str, Any]:
+    """Projette une ligne source sur les colonnes de sa table principale."""
     return {column: row.get(column) for column in TABLE_COLUMNS[table_name]}
 
 
 def _children(row: dict[str, Any], field: str) -> list[dict[str, Any]]:
+    """Extrait et valide une collection optionnelle d'objets enfants."""
     value = row.get(field)
     if value is None:
         return []
@@ -28,6 +30,7 @@ def _children(row: dict[str, Any], field: str) -> list[dict[str, Any]]:
 
 
 def normalize_navire(row: dict[str, Any]) -> NormalizedRows:
+    """Sépare un navire de ses moteurs imbriqués."""
     navire_id = row.get("navire_id")
     children = [
         {"moteur_id": item.get("id"), "navire_id": navire_id,
@@ -39,6 +42,7 @@ def normalize_navire(row: dict[str, Any]) -> NormalizedRows:
 
 
 def normalize_pecheur(row: dict[str, Any]) -> NormalizedRows:
+    """Sépare une carte de pêche de ses pêcheries spécifiques."""
     carte_id = row.get("carte_id")
     children = [
         {"carte_id": carte_id, "code": item.get("code"), "nom": item.get("nom"),
@@ -51,6 +55,7 @@ def normalize_pecheur(row: dict[str, Any]) -> NormalizedRows:
 
 
 def normalize_campagne(row: dict[str, Any]) -> NormalizedRows:
+    """Sépare une campagne de ses différents postes de frais."""
     details = _children(row, "campagne_frais_details")
     if len(details) > 1:
         raise ValueError(
@@ -72,6 +77,7 @@ def normalize_campagne(row: dict[str, Any]) -> NormalizedRows:
 
 
 def normalize_capture(row: dict[str, Any]) -> NormalizedRows:
+    """Sépare une capture de ses zones de pêche."""
     capture_id = row.get("capture_id")
     children = [
         {"capture_id": capture_id, "zone_peche_id": item.get("zone_peche_id"),
@@ -92,6 +98,7 @@ NORMALIZERS: dict[str, Callable[[dict[str, Any]], NormalizedRows]] = {
 def normalize_page(
     table_name: str, rows: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:
+    """Normalise une page en lignes principales et éventuelles lignes enfants."""
     normalizer = NORMALIZERS.get(table_name)
     if normalizer is None:
         return [_parent(row, table_name) for row in rows], None, []

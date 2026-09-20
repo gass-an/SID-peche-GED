@@ -22,6 +22,7 @@ from src.extraction.progress import format_count, format_duration
 
 
 def parse_args() -> argparse.Namespace:
+    """Analyse et valide les arguments fournis sur la ligne de commande."""
     parser = argparse.ArgumentParser(description="Import des données de pêche Province Sud")
     parser.add_argument("table", nargs="?", help="table unique à importer")
     parser.add_argument(
@@ -44,6 +45,7 @@ def print_summary(
     results: list[ExtractionResult],
     total_elapsed: float,
 ) -> None:
+    """Affiche le bilan des téléchargements et des imports réalisés."""
     print("\nExtraction terminée\n")
     print(f"{'Table':<34} | {'Pages':>7} | {'JSON':>12} | {'Base':>12} | {'Temps':>8}")
     print("-" * 84)
@@ -71,6 +73,7 @@ def print_summary(
 
 
 def run() -> int:
+    """Exécute l'ETL complet et renvoie son code de sortie."""
     started_at = time.monotonic()
     args = parse_args()
     try:

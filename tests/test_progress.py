@@ -4,6 +4,7 @@ from src.extraction.progress import ProgressDisplay, format_duration
 
 
 def test_progress_refreshes_aligned_counter() -> None:
+    """Vérifie l'alignement et le rafraîchissement du compteur."""
     stream = StringIO()
     times = iter([0.0, 0.3, 1.0])
     display = ProgressDisplay("capture_peche", stream=stream, clock=lambda: next(times))
@@ -18,6 +19,7 @@ def test_progress_refreshes_aligned_counter() -> None:
 
 
 def test_progress_accumulates_pages_in_one_counter() -> None:
+    """Vérifie l'accumulation des lignes de plusieurs pages."""
     stream = StringIO()
     times = iter([0.0, 0.3, 0.6, 1.0])
     display = ProgressDisplay("navire_moteur", stream=stream, clock=lambda: next(times))
@@ -30,4 +32,5 @@ def test_progress_accumulates_pages_in_one_counter() -> None:
 
 
 def test_format_duration_includes_hours() -> None:
+    """Vérifie que le format de durée inclut les heures."""
     assert format_duration(3723.9) == "01:02:03"

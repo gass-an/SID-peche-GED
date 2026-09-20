@@ -21,12 +21,14 @@ class ProvinceSudClient:
         timeout: float = 30,
         session: requests.Session | None = None,
     ) -> None:
+        """Initialise le client avec sa clé, son délai et une session optionnelle."""
         self.api_key = api_key
         self.timeout = timeout
         self.session = session or self._build_session()
 
     @staticmethod
     def _build_session() -> requests.Session:
+        """Construit une session HTTP configurée avec une politique de relance."""
         session = requests.Session()
         retry = Retry(
             total=5,
@@ -41,6 +43,7 @@ class ProvinceSudClient:
         return session
 
     def fetch_pages(self, table_name: str) -> Iterator[list[dict[str, Any]]]:
+        """Récupère successivement toutes les pages d'une table autorisée."""
         validate_table_name(table_name)
         url = f"{API_BASE_URL}/{table_name}/data"
         cursor: dict[str, Any] = {}
@@ -106,10 +109,13 @@ class ProvinceSudClient:
             page_number += 1
 
     def close(self) -> None:
+        """Ferme la session HTTP sous-jacente."""
         self.session.close()
 
     def __enter__(self) -> "ProvinceSudClient":
+        """Retourne le client lors de l'entrée dans un gestionnaire de contexte."""
         return self
 
     def __exit__(self, *_: object) -> None:
+        """Ferme le client à la sortie du gestionnaire de contexte."""
         self.close()

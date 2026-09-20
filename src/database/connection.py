@@ -7,10 +7,12 @@ from src.config import Settings
 
 
 def connect(settings: Settings) -> Connection:
+    """Ouvre une connexion PostgreSQL à partir des paramètres applicatifs."""
     return psycopg.connect(**settings.postgres_kwargs)
 
 
 def check_connection(connection: Connection) -> None:
+    """Vérifie que la connexion répond puis clôt la transaction de contrôle."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         cursor.fetchone()

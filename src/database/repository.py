@@ -12,6 +12,7 @@ from src.database.schema import TABLE_COLUMNS, managed_tables
 def _insert_batch(
     connection: Connection, table_name: str, rows: Sequence[dict[str, Any]]
 ) -> None:
+    """Insère un lot de lignes dans une table gérée."""
     if not rows:
         return
     columns = TABLE_COLUMNS[table_name]
@@ -32,6 +33,7 @@ def insert_page(
     child_table: str | None,
     child_rows: Sequence[dict[str, Any]],
 ) -> None:
+    """Insère atomiquement une page de lignes parentes et enfants."""
     if parent_table not in TABLES:
         raise ValueError(f"Table principale inconnue : {parent_table}")
     with connection.transaction():
@@ -41,6 +43,7 @@ def insert_page(
 
 
 def count_rows(connection: Connection, table_name: str) -> int:
+    """Compte les lignes d'une table gérée."""
     if table_name not in managed_tables(TABLES):
         raise ValueError(f"Table gérée inconnue : {table_name}")
     with connection.transaction():
@@ -57,6 +60,7 @@ def count_rows(connection: Connection, table_name: str) -> int:
 def find_json_columns(
     connection: Connection, source_tables: list[str]
 ) -> list[tuple[str, str, str]]:
+    """Recherche les colonnes JSON résiduelles dans les tables demandées."""
     with connection.transaction():
         with connection.cursor() as cursor:
             cursor.execute(
@@ -74,6 +78,7 @@ def find_json_columns(
 
 
 def relation_statistics(connection: Connection) -> list[tuple[str, int, int, int]]:
+    """Calcule les statistiques d'intégrité des principales relations."""
     relations = [
         ("carte_autorisation_navire_id", "pecheur_anonymise", "navire_peche_anonymise", "navire_id"),
         ("navire_id", "navire_moteur", "navire_peche_anonymise", "navire_id"),

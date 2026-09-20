@@ -71,6 +71,7 @@ REFERENCED_PARENT_TABLES = {
 
 
 def managed_tables(table_names: list[str]) -> list[str]:
+    """Énumère les tables principales, enfants et référentielles à gérer."""
     tables = list(table_names) + [CHILD_TABLES[name] for name in table_names if name in CHILD_TABLES]
     if "campagne_peche" in table_names:
         tables.append("frais")
@@ -78,6 +79,7 @@ def managed_tables(table_names: list[str]) -> list[str]:
 
 
 def validate_reset_scope(table_names: list[str]) -> None:
+    """Vérifie que la portée de reconstruction respecte les dépendances."""
     for table_name in table_names:
         validate_table_name(table_name)
     if set(table_names) != set(TABLES):
@@ -91,6 +93,7 @@ def validate_reset_scope(table_names: list[str]) -> None:
 
 
 def reset_tables(connection: Connection, table_names: list[str]) -> None:
+    """Reconstruit atomiquement les tables et index demandés."""
     validate_reset_scope(table_names)
     children = [CHILD_TABLES[name] for name in table_names if name in CHILD_TABLES]
     with connection.transaction():

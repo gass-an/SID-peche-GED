@@ -9,6 +9,7 @@ from src.extraction.normalization import (
 
 
 def test_navire_produces_two_motors_and_removes_json_from_parent() -> None:
+    """Vérifie l'extraction des moteurs hors de la ligne navire."""
     result = normalize_navire({
         "navire_id": "NAV1",
         "moteurs": [
@@ -23,6 +24,7 @@ def test_navire_produces_two_motors_and_removes_json_from_parent() -> None:
 
 
 def test_pecheur_produces_three_specific_fisheries() -> None:
+    """Vérifie l'extraction des pêcheries spécifiques d'une carte."""
     details = [{"code": code, "nom": code} for code in ("TRO", "VIV", "CRAB")]
     result = normalize_pecheur({
         "carte_id": "CARTE1", "carte_pecherie_specifique_details": details
@@ -33,6 +35,7 @@ def test_pecheur_produces_three_specific_fisheries() -> None:
 
 
 def test_campagne_preserves_zero_values() -> None:
+    """Vérifie que la normalisation conserve les frais nuls."""
     result = normalize_campagne({
         "campagne_id": "C1",
         "campagne_frais_details": [{"mat": 0, "carburant": 12350}],
@@ -45,11 +48,13 @@ def test_campagne_preserves_zero_values() -> None:
 
 
 def test_campagne_rejects_multiple_fee_objects_to_prevent_data_loss() -> None:
+    """Vérifie le rejet de plusieurs objets de frais ambigus."""
     with pytest.raises(ValueError, match="plusieurs objets"):
         normalize_campagne({"campagne_id": "C1", "campagne_frais_details": [{}, {}]})
 
 
 def test_capture_produces_multiple_zones() -> None:
+    """Vérifie l'extraction de plusieurs zones depuis une capture."""
     result = normalize_capture({
         "capture_id": "CAP1",
         "capture_zone_details": [
@@ -75,6 +80,7 @@ def test_capture_produces_multiple_zones() -> None:
 def test_null_and_empty_details_create_no_child(
     normalizer, id_field: str, detail_field: str, field_value
 ) -> None:
+    """Vérifie qu'un détail nul ou vide ne produit aucun enfant."""
     result = normalizer({id_field: "ID1", detail_field: field_value})
     assert result.children == []
 
@@ -89,4 +95,5 @@ def test_null_and_empty_details_create_no_child(
     ],
 )
 def test_absent_optional_detail_field_creates_no_child(normalizer, id_field: str) -> None:
+    """Vérifie qu'un champ de détail absent est traité comme optionnel."""
     assert normalizer({id_field: "ID1"}).children == []

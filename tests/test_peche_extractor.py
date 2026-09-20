@@ -8,15 +8,18 @@ from src.extraction.peche_extractor import download_tables
 
 class FakeClient:
     def __init__(self, pages_by_table: dict[str, list[list[dict]]]) -> None:
+        """Initialise le faux client avec les pages à restituer."""
         self.pages_by_table = pages_by_table
         self.calls: list[str] = []
 
     def fetch_pages(self, table_name: str):
+        """Enregistre l'appel et restitue les pages de la table."""
         self.calls.append(table_name)
         yield from self.pages_by_table[table_name]
 
 
 def test_download_writes_json_and_archives_previous_snapshot(tmp_path: Path) -> None:
+    """Vérifie l'écriture du JSON et l'archivage de l'ancien instantané."""
     current = tmp_path / "capture_peche.json"
     current.write_text('[{"capture_id": "old"}]', encoding="utf-8")
     client = FakeClient({"capture_peche": [[{"capture_id": "new"}]]})
@@ -36,6 +39,7 @@ def test_download_writes_json_and_archives_previous_snapshot(tmp_path: Path) -> 
 
 
 def test_failed_snapshot_keeps_all_current_json_files(tmp_path: Path) -> None:
+    """Vérifie qu'un échec préserve tous les fichiers JSON courants."""
     for table_name in ("navire_peche_anonymise", "capture_peche"):
         (tmp_path / f"{table_name}.json").write_text(
             '[{"version": "old"}]', encoding="utf-8"
@@ -43,6 +47,7 @@ def test_failed_snapshot_keeps_all_current_json_files(tmp_path: Path) -> None:
 
     class FailingClient(FakeClient):
         def fetch_pages(self, table_name: str):
+            """Simule une panne lors du téléchargement de la seconde table."""
             if table_name == "capture_peche":
                 raise RuntimeError("source indisponible")
             yield [{"version": "new"}]
@@ -63,6 +68,7 @@ def test_failed_snapshot_keeps_all_current_json_files(tmp_path: Path) -> None:
 
 
 def test_rotation_keeps_only_requested_number_of_snapshots(tmp_path: Path) -> None:
+    """Vérifie que la rotation respecte le nombre d'archives demandé."""
     client = FakeClient({"capture_peche": [[{"capture_id": "new"}]]})
     for index in range(4):
         snapshot = tmp_path / "archive" / f"2026010{index}T000000000000Z"
