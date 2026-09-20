@@ -1,0 +1,2 @@
+"""Accès et schéma PostgreSQL."""
+
