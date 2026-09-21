@@ -110,7 +110,12 @@ def run() -> int:
                 )
         pages_by_table = {result.table: result.pages for result in downloads}
 
-        logging.info("Reconstruction et chargement de PostgreSQL depuis les JSON")
+        database_label = (
+            "PostgreSQL" if settings.db_engine == "postgresql" else "SQL Server"
+        )
+        logging.info(
+            "Reconstruction et chargement de %s depuis les JSON", database_label
+        )
         with connect(settings) as connection:
             check_connection(connection)
             reset_tables(connection, selected_tables)
