@@ -54,11 +54,18 @@ TABLE_DEFINITIONS = {
     "capture_zone": """capture_id VARCHAR(255) NOT NULL, zone_peche_id VARCHAR(255) NOT NULL, label VARCHAR(4000), CONSTRAINT pk_capture_zone PRIMARY KEY (capture_id, zone_peche_id), CONSTRAINT fk_capture_zone_capture FOREIGN KEY (capture_id) REFERENCES env_mer.capture_peche(capture_id) ON DELETE CASCADE""",
 }
 
-# SQL Server emploie des noms différents pour quelques types PostgreSQL.
+def _sqlserver_definition(definition: str) -> str:
+    """Traduit les types PostgreSQL vers leurs équivalents SQL Server."""
+    return (
+        definition.replace("DOUBLE PRECISION", "FLOAT")
+        .replace("BOOLEAN", "BIT")
+        .replace(" NUMERIC", " DECIMAL(18,8)")
+        .replace(" TEXT", " VARCHAR(MAX)")
+    )
+
+
 SQLSERVER_TABLE_DEFINITIONS = {
-    table_name: definition.replace("DOUBLE PRECISION", "FLOAT")
-    .replace("BOOLEAN", "BIT")
-    .replace(" TEXT", " VARCHAR(MAX)")
+    table_name: _sqlserver_definition(definition)
     for table_name, definition in TABLE_DEFINITIONS.items()
 }
 
@@ -151,7 +158,7 @@ def reset_tables(connection: Any, table_names: list[str]) -> None:
                             f"INSERT INTO "
                             f"{qualified_table('frais', sqlserver=sqlserver)} "
                             f"(frais_id, libelle) VALUES ({placeholder}, {placeholder})",
-                            FRAIS.items(),
+                            list(FRAIS.items()),
                         )
             for table_name in children:
                 cursor.execute(
