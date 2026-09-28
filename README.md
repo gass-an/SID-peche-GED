@@ -35,6 +35,22 @@ pip install -r requirements.txt
 python main.py
 ```
 
+Par défaut, cette commande exécute le workflow complet : téléchargement
+(ou lecture JSON), reconstruction et contrôles de l'ODS `env_mer`, puis
+construction du DWH `dwh` dans la même base `peche_nc`.
+
+```bash
+python main.py                    # API -> ODS -> DWH
+python main.py --ods-only         # API -> ODS uniquement
+python main.py --dwh-only         # env_mer existant -> DWH uniquement
+python main.py --depuis-json      # JSON existants -> ODS -> DWH
+python main.py --depuis-json --ods-only  # JSON existants -> ODS uniquement
+```
+
+Le mode `--dwh-only` n'appelle pas l'API et ne requiert donc pas
+`PROVINCE_SUD_API_KEY`. Les options `--ods-only` et `--dwh-only` sont
+mutuellement exclusives.
+
 Le fichier `docker-compose.yml` reste dédié à PostgreSQL. Pour SQL Server sous
 Windows, installer SQL Server (Express ou Developer), SQL Server Management
 Studio et Microsoft ODBC Driver 18 for SQL Server, puis créer la base une fois :
@@ -65,26 +81,21 @@ python main.py --depuis-json
 L'alias anglais `python main.py --from-json` est également disponible. La clé
 `PROVINCE_SUD_API_KEY` n'est pas obligatoire dans ce mode.
 
-Les tables feuilles, qui ne sont référencées par aucune autre table, peuvent
-être reconstruites et importées seules :
-
-```bash
-python main.py capture_peche
-```
-
-Pour `navire_peche_anonymise`, `pecheur_anonymise` ou `campagne_peche`, relancer
-le script sans argument afin de reconstruire ensemble toutes les relations.
-
 Les copies JSON sont écrites progressivement dans `data/raw/`. Pour arrêter la
 base, utiliser `docker compose down`; ajouter `-v` supprime volontairement son
 volume persistant.
 
 ## Entrepôt décisionnel
 
-Le script `src/DWH_peche_nc` construit la base `PecheDWH` à partir de l'ODS
-`peche_nc.env_mer`. Il s'exécute dans SSMS, sur l'instance qui héberge l'ODS,
-et se rejoue sans précaution : les tables sont retirées dans l'ordre inverse
-des dépendances puis reconstruites.
+Le DWH est construit dans le schéma `dwh` de la base `peche_nc`, à partir de
+l'ODS `env_mer`. Python orchestre uniquement le script correspondant au moteur :
+
+- `sql/postgresql/dwh/init_dwh.sql` pour PostgreSQL ;
+- `sql/sqlserver/dwh/init_dwh.sql` pour SQL Server.
+
+Ces scripts sont la référence du modèle métier et reconstruisent les 17 tables,
+leurs données, ponts, index et contrôles. Sur SQL Server, les lignes `GO` sont
+traitées comme des séparateurs de batches par le runner Python.
 
 Il **initialise** le DWH. Reconstruisant tout à chaque exécution, il ne
 conserve aucun historique : ni date d'intégration, ni distinction entre
