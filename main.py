@@ -22,6 +22,9 @@ from src.extraction.progress import format_count, format_duration
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Analyse et valide les arguments fournis sur la ligne de commande."""
+    # Le mode par défaut enchaîne le téléchargement, la reconstruction de
+    # l'ODS puis celle du DWH. Les options permettent de reprendre le pipeline
+    # depuis les JSON ou depuis un ODS déjà construit.
     parser = argparse.ArgumentParser(description="Import des données de pêche Province Sud")
     parser.add_argument(
         "--depuis-json",
@@ -39,6 +42,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="construit uniquement le DWH depuis l'ODS existant",
     )
     args = parser.parse_args(argv)
+    # Le mode DWH ne lit aucun fichier source : lui associer --depuis-json
+    # serait contradictoire et signalerait probablement une erreur de commande.
     if args.dwh_only and args.depuis_json:
         parser.error("--dwh-only est incompatible avec --depuis-json/--from-json")
     return args
@@ -53,6 +58,8 @@ def print_summary(
     print("\nExtraction terminée\n")
     print(f"{'Table':<34} | {'Pages':>7} | {'JSON':>12} | {'Base':>12} | {'Temps':>8}")
     print("-" * 84)
+    # Ce rapprochement associe les mesures réseau aux contrôles en base,
+    # produits à deux moments différents du pipeline.
     downloads_by_table = {result.table: result for result in downloads}
     for result in results:
         download = downloads_by_table[result.table]
@@ -80,9 +87,13 @@ def run_ods(settings: object, args: argparse.Namespace, connection: object) -> t
     list[DownloadResult], list[ExtractionResult]
 ]:
     """Construit et contrôle l'ODS avec la connexion déjà ouverte."""
+    # L'ODS est reconstruit dans son ensemble et dans l'ordre de TABLES, qui
+    # place les lignes référencées avant celles portant les clés étrangères.
     selected_tables = list(TABLES)
     validate_reset_scope(selected_tables)
     if args.depuis_json:
+        # Tous les fichiers sont contrôlés avant de détruire les tables afin
+        # qu'une source locale manquante ne laisse pas un ODS vide.
         logging.info("Mode JSON local : aucun appel à la source")
         missing = [
             settings.raw_data_dir / f"{table_name}.json"
@@ -102,9 +113,13 @@ def run_ods(settings: object, args: argparse.Namespace, connection: object) -> t
             for table_name in selected_tables
         ]
     else:
+        # L'instantané complet est publié sur disque avant toute modification
+        # de la base ; un échec réseau préserve ainsi l'ODS actuel.
         logging.info("Phase 1/2 : téléchargement de l'instantané JSON")
         with ProvinceSudClient(settings.api_key, settings.http_timeout) as client:
             downloads = download_tables(client, selected_tables, settings.raw_data_dir)
+    # En mode local, ce nombre vaut zéro car le fichier ne permet pas de
+    # retrouver la pagination d'origine ; il sert uniquement au bilan.
     pages_by_table = {result.table: result.pages for result in downloads}
 
     database_label = (
@@ -112,8 +127,12 @@ def run_ods(settings: object, args: argparse.Namespace, connection: object) -> t
     )
     logging.info("Reconstruction et chargement de %s depuis les JSON", database_label)
     check_connection(connection)
+    # Cette opération destructive n'intervient qu'après validation des sources.
+    # reset_tables regroupe uniquement la reconstruction du schéma dans une
+    # transaction ; les imports suivants possèdent chacun leur propre transaction.
     reset_tables(connection, selected_tables)
     results = []
+    # L'ordre de chargement respecte les dépendances référentielles de l'ODS.
     for table_name in selected_tables:
         results.append(
             import_table(
@@ -124,11 +143,16 @@ def run_ods(settings: object, args: argparse.Namespace, connection: object) -> t
             )
         )
         if args.depuis_json:
+            # Faute de réponse API, le nombre d'objets du JSON devient la mesure
+            # source affichée dans le bilan final.
             imported = results[-1]
             index = selected_tables.index(table_name)
             downloads[index] = DownloadResult(
                 table_name, 0, imported.api_rows, downloads[index].bytes_written
             )
+    # La présence d'une colonne JSON résiduelle interrompt le traitement. Les
+    # statistiques relationnelles suivantes sont seulement calculées et journalisées :
+    # leurs nombres d'orphelins ne déterminent pas le succès du pipeline.
     json_columns = find_json_columns(connection, selected_tables)
     if json_columns:
         raise RuntimeError(f"Colonnes JSON/JSONB encore présentes : {json_columns}")
@@ -150,6 +174,7 @@ def run(argv: list[str] | None = None) -> int:
     started_at = time.monotonic()
     args = parse_args(argv)
     try:
+        # La clé API n'est exigée que lorsqu'un téléchargement est prévu.
         settings = load_settings(require_api_key=not (args.depuis_json or args.dwh_only))
     except ValueError as exc:
         logging.error("Configuration invalide : %s", exc)
@@ -157,6 +182,8 @@ def run(argv: list[str] | None = None) -> int:
     try:
         with connect(settings) as connection:
             if args.dwh_only:
+                # Le DWH repose sur un ODS existant, contrôlé avant le lancement
+                # du script SQL sans relire les sources.
                 check_connection(connection)
                 ensure_env_mer_exists(connection, settings.db_engine)
                 run_dwh(connection, settings.db_engine)
@@ -164,9 +191,13 @@ def run(argv: list[str] | None = None) -> int:
 
             downloads, results = run_ods(settings, args, connection)
             if not args.ods_only:
+                # En mode normal ou JSON local, le DWH n'est construit qu'après
+                # la reconstruction et l'exécution des contrôles prévus sur l'ODS.
                 ensure_env_mer_exists(connection, settings.db_engine)
                 run_dwh(connection, settings.db_engine)
     except Exception as exc:
+        # Toute erreur bloque les étapes suivantes et renvoie un code non nul
+        # exploitable par un ordonnanceur ou un outil d'intégration.
         logging.error("Pipeline interrompu : %s", exc)
         return 1
 

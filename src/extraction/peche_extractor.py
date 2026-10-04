@@ -41,6 +41,8 @@ class ExtractionResult:
 def _write_json_item(handle: object, row: dict[str, object], first: bool) -> bool:
     """Écrit un objet dans un tableau JSON en gérant son séparateur."""
     if not first:
+        # Le séparateur est écrit avant tout objet sauf le premier afin de
+        # produire progressivement un unique tableau JSON valide.
         handle.write(",\n")  # type: ignore[attr-defined]
     serialized = json.dumps(row, ensure_ascii=False, indent=2)
     handle.write("  " + serialized.replace("\n", "\n  "))  # type: ignore[attr-defined]
@@ -55,6 +57,8 @@ def _download_table(
     first = True
     progress = ProgressDisplay(f"Téléchargement {table_name}")
     try:
+        # Les pages sont sérialisées au fil de l'eau : la mémoire ne contient
+        # jamais l'intégralité d'une table volumineuse.
         with target.open("w", encoding="utf-8") as handle:
             handle.write("[\n")
             for pages, rows in enumerate(client.fetch_pages(table_name), start=1):
@@ -64,6 +68,8 @@ def _download_table(
                 progress.update(len(rows))
             handle.write("\n]\n")
     except Exception:
+        # On termine proprement la ligne de progression avant de laisser
+        # download_tables supprimer la zone temporaire incomplète.
         progress.abort()
         raise
     elapsed = progress.finish()
@@ -74,6 +80,8 @@ def _download_table(
 
 def _rotate_archives(archive_dir: Path, retention: int) -> None:
     """Supprime les instantanés dépassant la durée de rétention demandée."""
+    # Le nom horodaté se trie chronologiquement : l'ordre inverse place donc les
+    # instantanés les plus récents avant ceux à supprimer.
     snapshots = (
         sorted((path for path in archive_dir.iterdir() if path.is_dir()), reverse=True)
         if archive_dir.exists()
@@ -93,6 +101,9 @@ def download_tables(
     if archive_retention < 0:
         raise ValueError("archive_retention doit être positif ou nul")
     raw_data_dir.mkdir(parents=True, exist_ok=True)
+    # Chaque exécution télécharge toutes les tables dans une zone temporaire.
+    # Les JSON courants restent ainsi inchangés tant que le téléchargement complet
+    # n'est pas terminé.
     staging = raw_data_dir / f".staging-{uuid4().hex}"
     staging.mkdir()
     results: list[DownloadResult] = []
@@ -112,6 +123,8 @@ def download_tables(
                 result.elapsed_seconds,
             )
 
+        # Une fois tous les téléchargements terminés, les fichiers courants sont
+        # déplacés successivement dans un même répertoire d'archive.
         current_files = [
             raw_data_dir / f"{table_name}.json"
             for table_name in table_names
@@ -124,6 +137,9 @@ def download_tables(
             for current in current_files:
                 current.replace(snapshot / current.name)
 
+        # Les nouveaux fichiers sont ensuite publiés successivement avec replace().
+        # Chaque déplacement est individuel : l'archivage et la publication de
+        # l'instantané complet ne constituent donc pas une opération atomique.
         for table_name in table_names:
             (staging / f"{table_name}.json").replace(
                 raw_data_dir / f"{table_name}.json"
@@ -131,6 +147,8 @@ def download_tables(
         _rotate_archives(raw_data_dir / "archive", archive_retention)
         return results
     finally:
+        # La zone de travail est nettoyée aussi bien après succès qu'après une
+        # erreur réseau ou de sérialisation.
         shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -140,7 +158,7 @@ def import_table(
     raw_data_dir: Path,
     pages: int = 0,
 ) -> ExtractionResult:
-    """Charge PostgreSQL exclusivement depuis le JSON local courant."""
+    """Charge le moteur configuré exclusivement depuis le JSON local courant."""
     started_at = time.monotonic()
     source = raw_data_dir / f"{table_name}.json"
     logging.info(
@@ -151,9 +169,13 @@ def import_table(
     )
     with source.open(encoding="utf-8") as handle:
         rows = json.load(handle)
+    # Le fichier doit représenter la collection d'objets attendue par le schéma ;
+    # cette validation précède toute insertion.
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise ValueError(f"[{table_name}] le fichier JSON doit contenir une liste d'objets")
 
+    # Les tableaux imbriqués sont extraits vers leurs tables enfants et les
+    # objets principaux sont limités aux colonnes relationnelles connues.
     parents, child_table, children = normalize_page(table_name, rows)
     logging.info(
         "[%s] insertion : %d lignes principales%s",
@@ -163,6 +185,8 @@ def import_table(
     )
     insert_page(connection, table_name, parents, child_table, children)
 
+    # Après validation transactionnelle du lot, les comptages signalent un écart
+    # entre les nombres de lignes attendus et chargés, pour le parent et l'enfant.
     database_rows = count_rows(connection, table_name)
     if database_rows != len(rows):
         raise RuntimeError(

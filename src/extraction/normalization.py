@@ -14,12 +14,16 @@ class NormalizedRows:
 
 def _parent(row: dict[str, Any], table_name: str) -> dict[str, Any]:
     """Projette une ligne source sur les colonnes de sa table principale."""
+    # La projection écarte les objets imbriqués et toute propriété inattendue.
+    # Une colonne absente devient None, donc NULL lors de l'insertion.
     return {column: row.get(column) for column in TABLE_COLUMNS[table_name]}
 
 
 def _children(row: dict[str, Any], field: str) -> list[dict[str, Any]]:
     """Extrait et valide une collection optionnelle d'objets enfants."""
     value = row.get(field)
+    # L'absence de collection et la valeur JSON null ont la même signification :
+    # aucune ligne enfant ne doit être produite.
     if value is None:
         return []
     if not isinstance(value, list):
@@ -32,6 +36,8 @@ def _children(row: dict[str, Any], field: str) -> list[dict[str, Any]]:
 def normalize_navire(row: dict[str, Any]) -> NormalizedRows:
     """Sépare un navire de ses moteurs imbriqués."""
     navire_id = row.get("navire_id")
+    # L'identifiant du parent est recopié sur chaque moteur afin de matérialiser
+    # la relation qui était implicite dans l'imbrication JSON.
     children = [
         {"moteur_id": item.get("id"), "navire_id": navire_id,
          "usage": item.get("usage"), "marque": item.get("marque"),
@@ -44,6 +50,8 @@ def normalize_navire(row: dict[str, Any]) -> NormalizedRows:
 def normalize_pecheur(row: dict[str, Any]) -> NormalizedRows:
     """Sépare une carte de pêche de ses pêcheries spécifiques."""
     carte_id = row.get("carte_id")
+    # Une ligne par pêcherie remplace le tableau imbriqué ; carte_id devient la
+    # clé étrangère vers la carte de pêche d'origine.
     children = [
         {"carte_id": carte_id, "code": item.get("code"), "nom": item.get("nom"),
          "zone": item.get("zone"), "taille": item.get("taille"),
@@ -57,6 +65,8 @@ def normalize_pecheur(row: dict[str, Any]) -> NormalizedRows:
 def normalize_campagne(row: dict[str, Any]) -> NormalizedRows:
     """Sépare une campagne de ses différents postes de frais."""
     details = _children(row, "campagne_frais_details")
+    # Le modèle attend un unique objet regroupant les montants. Refuser plusieurs
+    # objets évite de choisir arbitrairement l'un d'eux et de perdre des données.
     if len(details) > 1:
         raise ValueError(
             "campagne_frais_details contient plusieurs objets; "
@@ -64,6 +74,8 @@ def normalize_campagne(row: dict[str, Any]) -> NormalizedRows:
         )
     children = []
     if details:
+        # Le document large {type: montant} est dépivoté en une ligne par type
+        # de frais. Les montants absents ne créent pas de ligne artificielle.
         children = [
             {
                 "campagne_id": row.get("campagne_id"),
@@ -79,6 +91,8 @@ def normalize_campagne(row: dict[str, Any]) -> NormalizedRows:
 def normalize_capture(row: dict[str, Any]) -> NormalizedRows:
     """Sépare une capture de ses zones de pêche."""
     capture_id = row.get("capture_id")
+    # Chaque zone reçoit l'identifiant de la capture qui contenait le tableau,
+    # ce qui conserve la relation après passage au modèle relationnel.
     children = [
         {"capture_id": capture_id, "zone_peche_id": item.get("zone_peche_id"),
          "label": item.get("label")}
@@ -101,7 +115,11 @@ def normalize_page(
     """Normalise une page en lignes principales et éventuelles lignes enfants."""
     normalizer = NORMALIZERS.get(table_name)
     if normalizer is None:
+        # Une table sans collection imbriquée requiert seulement la projection
+        # sur les colonnes déclarées dans le schéma.
         return [_parent(row, table_name) for row in rows], None, []
+    # Les enfants de tous les objets de la page sont ensuite aplatis dans un seul
+    # lot, inséré atomiquement avec les lignes principales.
     normalized = [normalizer(row) for row in rows]
     return (
         [item.parent for item in normalized],

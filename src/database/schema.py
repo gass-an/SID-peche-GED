@@ -56,6 +56,8 @@ TABLE_DEFINITIONS = {
 
 def _sqlserver_definition(definition: str) -> str:
     """Traduit les types PostgreSQL vers leurs équivalents SQL Server."""
+    # Les contraintes et les colonnes restent identiques ; seules les familles
+    # de types dont la syntaxe diffère entre les moteurs sont adaptées.
     return (
         definition.replace("DOUBLE PRECISION", "FLOAT")
         .replace("BOOLEAN", "BIT")
@@ -88,6 +90,8 @@ REFERENCED_PARENT_TABLES = {
 
 def managed_tables(table_names: list[str]) -> list[str]:
     """Énumère les tables principales, enfants et référentielles à gérer."""
+    # Les collections JSON sont matérialisées dans des tables enfants. La table
+    # frais est un référentiel nécessaire uniquement aux frais de campagne.
     tables = list(table_names) + [CHILD_TABLES[name] for name in table_names if name in CHILD_TABLES]
     if "campagne_peche" in table_names:
         tables.append("frais")
@@ -98,6 +102,8 @@ def validate_reset_scope(table_names: list[str]) -> None:
     """Vérifie que la portée de reconstruction respecte les dépendances."""
     for table_name in table_names:
         validate_table_name(table_name)
+    # Une reconstruction partielle d'une table parente pourrait casser des clés
+    # étrangères conservées ailleurs ; ces parents imposent donc un reset global.
     if set(table_names) != set(TABLES):
         referenced = REFERENCED_PARENT_TABLES.intersection(table_names)
         if referenced:
@@ -109,14 +115,19 @@ def validate_reset_scope(table_names: list[str]) -> None:
 
 
 def reset_tables(connection: Any, table_names: list[str]) -> None:
-    """Reconstruit atomiquement les tables et index demandés."""
+    """Reconstruit les tables et index demandés dans une transaction dédiée."""
     validate_reset_scope(table_names)
     children = [CHILD_TABLES[name] for name in table_names if name in CHILD_TABLES]
     sqlserver = is_sqlserver(connection)
     definitions = SQLSERVER_TABLE_DEFINITIONS if sqlserver else TABLE_DEFINITIONS
     placeholder = "?" if sqlserver else "%s"
+    # Les suppressions, créations et index sont regroupés dans la transaction
+    # ouverte ici. Le chargement des données intervient ensuite, table par table,
+    # dans des transactions distinctes gérées par insert_page().
     with transaction(connection):
         with connection.cursor() as cursor:
+            # La création conditionnelle d'un schéma utilise la syntaxe propre à
+            # chaque moteur, SQL Server ne prenant pas en charge IF NOT EXISTS ici.
             if sqlserver:
                 cursor.execute(
                     "IF SCHEMA_ID(N'env_mer') IS NULL "
@@ -124,12 +135,16 @@ def reset_tables(connection: Any, table_names: list[str]) -> None:
                 )
             else:
                 cursor.execute("CREATE SCHEMA IF NOT EXISTS env_mer")
+            # Les enfants sont supprimés avant les parents, puis les tables
+            # principales dans l'ordre inverse des dépendances référentielles.
             for table_name in reversed(children):
                 cursor.execute(
                     f"DROP TABLE IF EXISTS "
                     f"{qualified_table(table_name, sqlserver=sqlserver)}"
                 )
             if "campagne_peche" in table_names:
+                # PostgreSQL accepte CASCADE pour les références résiduelles ;
+                # sous SQL Server, les enfants ont déjà été supprimés.
                 suffix = "" if sqlserver else " CASCADE"
                 cursor.execute(
                     f"DROP TABLE IF EXISTS "
@@ -141,6 +156,8 @@ def reset_tables(connection: Any, table_names: list[str]) -> None:
                         f"DROP TABLE IF EXISTS "
                         f"{qualified_table(table_name, sqlserver=sqlserver)}"
                     )
+            # La création reprend cette fois l'ordre direct afin que chaque table
+            # référencée existe au moment de créer sa clé étrangère.
             for table_name in TABLES:
                 if table_name in table_names:
                     cursor.execute(
@@ -149,6 +166,8 @@ def reset_tables(connection: Any, table_names: list[str]) -> None:
                         f"({definitions[table_name]})"
                     )
                     if table_name == "campagne_peche":
+                        # Le dictionnaire FRAIS alimente la table de référence des
+                        # types de frais avant la création de campagne_frais.
                         cursor.execute(
                             f"CREATE TABLE "
                             f"{qualified_table('frais', sqlserver=sqlserver)} "
@@ -160,12 +179,16 @@ def reset_tables(connection: Any, table_names: list[str]) -> None:
                             f"(frais_id, libelle) VALUES ({placeholder}, {placeholder})",
                             list(FRAIS.items()),
                         )
+            # Les tables issues des tableaux JSON sont créées après tous leurs
+            # parents, ce qui rend leurs contraintes immédiatement valides.
             for table_name in children:
                 cursor.execute(
                     f"CREATE TABLE "
                     f"{qualified_table(table_name, sqlserver=sqlserver)} "
                     f"({definitions[table_name]})"
                 )
+            # Les index sur les clés de jointure accélèrent les contrôles de
+            # cohérence et les traitements ultérieurs du DWH.
             for table_name in managed_tables(table_names):
                 if table_name in INDEX_DEFINITIONS:
                     cursor.execute(INDEX_DEFINITIONS[table_name])

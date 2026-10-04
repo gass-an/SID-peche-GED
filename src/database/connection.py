@@ -10,6 +10,7 @@ from src.config import Settings
 def connect(settings: Settings) -> Any:
     """Ouvre une connexion avec le moteur sélectionné dans la configuration."""
     if settings.db_engine == "postgresql":
+        # psycopg accepte directement les paramètres PostgreSQL structurés.
         return psycopg.connect(**settings.postgres_kwargs)
 
     # Import différé : PostgreSQL reste utilisable sans pilote SQL Server.
@@ -20,6 +21,8 @@ def connect(settings: Settings) -> Any:
 
 def check_connection(connection: Any) -> None:
     """Vérifie que la connexion répond puis clôt la transaction de contrôle."""
+    # Cette requête minimale valide la session et l'exécution SQL sans dépendre
+    # de l'existence préalable d'une table du projet.
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         cursor.fetchone()

@@ -15,6 +15,8 @@ def format_count(value: int, width: int = 0) -> str:
 
 def format_duration(seconds: float) -> str:
     """Formate une durée en heures, minutes et secondes."""
+    # L'affichage ignore les fractions de seconde et protège contre une horloge
+    # de test qui retournerait exceptionnellement une durée négative.
     total = max(0, int(seconds))
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -51,9 +53,13 @@ class ProgressDisplay:
 
     def update(self, page_rows: int, child_rows: int = 0) -> None:
         """Ajoute les lignes d'une page et rafraîchit l'affichage si nécessaire."""
+        # Le paramètre enfant est conservé pour compatibilité avec les appelants,
+        # mais l'indicateur affiché porte uniquement sur les lignes sources.
         del child_rows
         self.rows += page_rows
         now = self.clock()
+        # Limiter la fréquence évite que les écritures du terminal ralentissent
+        # le traitement lorsque l'API retourne rapidement de petites pages.
         if now - self.last_refresh < self.refresh_interval:
             return
         print(f"\r{self._line(now)}", end="", file=self.stream, flush=True)

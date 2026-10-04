@@ -44,6 +44,8 @@ class Settings:
 
 def load_settings(*, require_api_key: bool = True) -> Settings:
     """Charge et valide la configuration depuis les variables d'environnement."""
+    # Le fichier .env complète l'environnement sans remplacer les valeurs déjà
+    # fournies par le système ou un outil de déploiement.
     load_dotenv()
     api_key = os.getenv("PROVINCE_SUD_API_KEY", "").strip()
     db_engine = os.getenv("DB_ENGINE", "postgresql").strip().lower()
@@ -55,6 +57,8 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
             "PROVINCE_SUD_API_KEY est absente. Renseignez-la dans le fichier .env."
         )
     try:
+        # Ces conversions font échouer le programme au démarrage plutôt qu'au
+        # milieu d'un téléchargement ou de l'ouverture de la base.
         port = int(os.getenv("POSTGRES_PORT", "5432"))
         timeout = float(os.getenv("HTTP_TIMEOUT", "30"))
     except ValueError as exc:
@@ -68,6 +72,8 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
         raise ValueError(
             "SQLSERVER_CONNECTION_STRING est absente pour DB_ENGINE=sqlserver."
         )
+    # Le chemin des données est ancré sur le projet et ne dépend donc pas du
+    # répertoire courant depuis lequel main.py est lancé.
     return Settings(
         api_key=api_key,
         db_engine=db_engine,
@@ -84,6 +90,8 @@ def load_settings(*, require_api_key: bool = True) -> Settings:
 
 def validate_table_name(table_name: str) -> str:
     """Valide le nom d'une table source et le retourne inchangé."""
+    # Cette liste blanche empêche qu'un nom externe soit injecté dans une URL
+    # de l'API ou dans un identifiant SQL construit dynamiquement.
     if table_name not in TABLES:
         allowed = ", ".join(TABLES)
         raise ValueError(f"Table inconnue : {table_name}. Tables autorisées : {allowed}")

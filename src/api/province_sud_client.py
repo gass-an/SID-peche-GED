@@ -30,6 +30,8 @@ class ProvinceSudClient:
     def _build_session() -> requests.Session:
         """Construit une session HTTP configurée avec une politique de relance."""
         session = requests.Session()
+        # Seules les lectures GET, sans effet de bord, sont relancées. Le délai
+        # progressif et Retry-After limitent la pression sur l'API indisponible.
         retry = Retry(
             total=5,
             connect=3,
@@ -44,6 +46,7 @@ class ProvinceSudClient:
 
     def fetch_pages(self, table_name: str) -> Iterator[list[dict[str, Any]]]:
         """Récupère successivement toutes les pages d'une table autorisée."""
+        # Le nom est validé avant de participer à la construction de l'URL.
         validate_table_name(table_name)
         url = f"{API_BASE_URL}/{table_name}/data"
         cursor: dict[str, Any] = {}
@@ -51,6 +54,8 @@ class ProvinceSudClient:
         page_number = 1
 
         while True:
+            # La clé locale est ajoutée à chaque page ; le curseur mémorisé
+            # est nettoyé pour ne jamais pouvoir la remplacer.
             params = {"apiKey": self.api_key, **cursor}
             try:
                 response = self.session.get(url, params=params, timeout=self.timeout)
@@ -71,6 +76,8 @@ class ProvinceSudClient:
                     "réponse JSON invalide."
                 ) from exc
 
+            # Une réponse HTTP valide n'est pas nécessairement conforme au
+            # contrat fonctionnel : sa structure est donc contrôlée séparément.
             if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
                 raise RuntimeError(
                     f"[{table_name}] page {page_number}, étape validation : "
@@ -78,6 +85,8 @@ class ProvinceSudClient:
                 )
             has_next_page = payload.get("hasNextPage") is True
             if has_next_page:
+                # Un curseur absent ou déjà rencontré provoquerait une boucle
+                # infinie ; il est rejeté avant de livrer la page à l'appelant.
                 next_cursor = payload.get("paramsNextPageQuery")
                 if not isinstance(next_cursor, dict) or not next_cursor:
                     raise PaginationError(
@@ -102,6 +111,7 @@ class ProvinceSudClient:
                     )
                 seen_cursors.add(signature)
 
+            # La page est exposée seulement après validation de sa continuation.
             yield payload["data"]
             if not has_next_page:
                 return
