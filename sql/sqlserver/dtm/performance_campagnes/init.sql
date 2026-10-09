@@ -1,5 +1,5 @@
 -- ============================================================================
--- CONSTRUCTION DU DTM "dtm" dans la base "peche_nc", depuis le DWH "dwh"
+-- CONSTRUCTION DU DTM "dtm_performance_campagnes" dans la base "peche_nc", depuis le DWH "dwh"
 -- Perimetre : performance des campagnes / sorties de peche
 -- ============================================================================
 --
@@ -9,12 +9,12 @@
 --   plat, directement lisibles par Power BI, sans jointure a refaire.
 --
 -- TROIS TABLES, A TROIS GRAINS (le grain = ce que represente UNE ligne)
---   1. dtm.DTM_PERFORMANCE_CAMPAGNE : une ligne par campagne
---        
---   2. dtm.DTM_CAPTURE_CAMPAGNE     : une ligne par campagne ET par espece
---        
---   3. dtm.DTM_FRAIS_CAMPAGNE       : une ligne par poste de depense
---       
+--   1. dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE : une ligne par campagne
+--
+--   2. dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE     : une ligne par campagne ET par espece
+--
+--   3. dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE       : une ligne par poste de depense
+--
 --
 -- AVANT DE LANCER
 --   Le script DWH doit avoir ete execute : ce script lit le datawarehouse
@@ -38,16 +38,49 @@
 USE peche_nc;
 GO
 
--- on range le DTM dans son propre schema, comme le DWH a le sien.
-IF SCHEMA_ID('dtm') IS NULL
-    EXEC('CREATE SCHEMA dtm');
+SET XACT_ABORT ON;
+
+-- Le DWH est vérifié avant tout DROP afin de conserver le DTM existant si sa
+-- source technique est absente ou incomplète.
+IF SCHEMA_ID('dwh') IS NULL
+    THROW 51000, N'Le DWH requis pour le DTM performance_campagnes est incomplet : schéma dwh absent.', 1;
+
+IF OBJECT_ID(N'dwh.FAIT_CAMPAGNE', N'U') IS NULL
+    THROW 51001, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.FAIT_CAMPAGNE absente.', 1;
+IF OBJECT_ID(N'dwh.FAIT_CAPTURE', N'U') IS NULL
+    THROW 51002, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.FAIT_CAPTURE absente.', 1;
+IF OBJECT_ID(N'dwh.FAIT_FRAIS', N'U') IS NULL
+    THROW 51003, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.FAIT_FRAIS absente.', 1;
+IF OBJECT_ID(N'dwh.FAIT_CARTE', N'U') IS NULL
+    THROW 51004, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.FAIT_CARTE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_CARTE', N'U') IS NULL
+    THROW 51005, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_CARTE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_PERSONNE', N'U') IS NULL
+    THROW 51006, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_PERSONNE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_COMMUNE', N'U') IS NULL
+    THROW 51007, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_COMMUNE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_TEMPS', N'U') IS NULL
+    THROW 51008, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_TEMPS absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_ESPECE', N'U') IS NULL
+    THROW 51009, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_ESPECE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_NAVIRE', N'U') IS NULL
+    THROW 51010, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_NAVIRE absente.', 1;
+IF OBJECT_ID(N'dwh.DIM_MOTEUR', N'U') IS NULL
+    THROW 51011, N'Le DWH requis pour le DTM performance_campagnes est incomplet : table dwh.DIM_MOTEUR absente.', 1;
+
+-- On range ce DTM dans son propre schéma afin que les futurs Data Marts
+-- puissent disposer chacun de leur schéma dédié.
+IF SCHEMA_ID('dtm_performance_campagnes') IS NULL
+    EXEC('CREATE SCHEMA dtm_performance_campagnes');
 GO
 
--- on supprime les anciennes versions pour pouvoir relancer le script autant de fois que necessaire.
-DROP TABLE IF EXISTS dtm.DTM_CAPTURE_CAMPAGNE;
-DROP TABLE IF EXISTS dtm.DTM_FRAIS_CAMPAGNE;
-DROP TABLE IF EXISTS dtm.DTM_PERFORMANCE_CAMPAGNE;
-GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    -- On supprime les anciennes versions pour pouvoir relancer le script autant de fois que necessaire.
+    DROP TABLE IF EXISTS dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE;
+    DROP TABLE IF EXISTS dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE;
+    DROP TABLE IF EXISTS dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE;
 
 
 -- ============================================================================
@@ -60,11 +93,11 @@ GO
 -- On n'utilise QUE les montants de FAIT_CAMPAGNE, jamais ceux de FAIT_CARTE :
 -- FAIT_CARTE est le total des campagnes d'une carte, les melanger compterait
 -- deux fois les memes montants.
-CREATE TABLE dtm.DTM_PERFORMANCE_CAMPAGNE (
+CREATE TABLE dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE (
     campagne_id               VARCHAR(255)  NOT NULL PRIMARY KEY,
     carte_id                  VARCHAR(255)  NULL,
 
-    -- Temps : la campagne est rattachee a sa date de debut 
+    -- Temps : la campagne est rattachee a sa date de debut
     annee                     SMALLINT      NULL,
     mois                      TINYINT       NULL,
     trimestre                 TINYINT       NULL,
@@ -100,9 +133,8 @@ CREATE TABLE dtm.DTM_PERFORMANCE_CAMPAGNE (
     campagne_salaire_patron   FLOAT         NULL,
     campagne_charges_sociales FLOAT         NULL
 );
-GO
 
-INSERT INTO dtm.DTM_PERFORMANCE_CAMPAGNE (
+INSERT INTO dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE (
     campagne_id, carte_id,
     annee, mois, trimestre, date_debut, date_fin,
     capitaine_id, capitaine_commune, capitaine_sexe,
@@ -147,7 +179,6 @@ LEFT JOIN (
     FROM dwh.FAIT_CAPTURE
     GROUP BY campagne_id
 ) cap ON cap.campagne_id = fc.campagne_id;
-GO
 
 
 -- ============================================================================
@@ -160,7 +191,7 @@ GO
 -- La zone de peche n'y figure pas (axe « eventuel » dans le SFD) : une capture
 -- peut avoir jusqu'a 6 zones, l'ajouter multiplierait les poids. Pour une
 -- analyse par zone, utiliser dwh.PONT_CAPTURE_ZONE.
-CREATE TABLE dtm.DTM_CAPTURE_CAMPAGNE (
+CREATE TABLE dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE (
     campagne_id       VARCHAR(255)  NOT NULL,
     espece_key        INT           NOT NULL,
     categorie_code    VARCHAR(255)  NULL,
@@ -175,9 +206,8 @@ CREATE TABLE dtm.DTM_CAPTURE_CAMPAGNE (
     valeur_captures   FLOAT         NULL,
     CONSTRAINT PK_DTM_CAPTURE_CAMPAGNE PRIMARY KEY (campagne_id, espece_key)
 );
-GO
 
-INSERT INTO dtm.DTM_CAPTURE_CAMPAGNE (
+INSERT INTO dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE (
     campagne_id, espece_key, categorie_code, categorie_nom, produit,
     annee, mois, capitaine_id,
     nombre_captures, quantite_capturee, poids_capture, valeur_captures)
@@ -202,7 +232,6 @@ LEFT JOIN dwh.DIM_PERSONNE dp ON dp.personne_key = fk.capitaine_key
 -- l'ecart eventuel apparait dans les verifications en fin de script
 WHERE f.campagne_id IS NOT NULL
 GROUP BY f.campagne_id, f.espece_key;
-GO
 
 
 -- ============================================================================
@@ -222,7 +251,7 @@ GO
 -- Le carburant et la marque sont ceux du moteur principal du navire de la
 -- carte (usage = 'Principale'). En cas de double motorisation, on retient le
 -- premier moteur principal. Colonnes INDICATIVES (voir l'en-tete).
-CREATE TABLE dtm.DTM_FRAIS_CAMPAGNE (
+CREATE TABLE dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE (
     campagne_id                VARCHAR(255)  NOT NULL,
     frais_id                   VARCHAR(255)  NOT NULL,
     nature_frais               NVARCHAR(255) NULL,
@@ -240,9 +269,8 @@ CREATE TABLE dtm.DTM_FRAIS_CAMPAGNE (
     carburant_moteur_principal NVARCHAR(60)  NULL,
     CONSTRAINT PK_DTM_FRAIS_CAMPAGNE PRIMARY KEY (campagne_id, frais_id)
 );
-GO
 
-INSERT INTO dtm.DTM_FRAIS_CAMPAGNE (
+INSERT INTO dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE (
     campagne_id, frais_id, nature_frais, montant, annee, mois,
     capitaine_id, jours_mer,
     navire_origine, navire_categorie_navigation, navire_tranche_longueur,
@@ -275,7 +303,15 @@ LEFT JOIN (
                         moteur_key) AS rang
     FROM dwh.DIM_MOTEUR
 ) mp ON mp.navire_key = ff.navire_key AND mp.rang = 1;
-GO
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0
+        ROLLBACK TRANSACTION;
+
+    THROW;
+END CATCH;
 
 
 -- ============================================================================
@@ -283,34 +319,34 @@ GO
 -- ============================================================================
 
 SELECT 'DTM_PERFORMANCE_CAMPAGNE / FAIT_CAMPAGNE' AS controle,
-       (SELECT COUNT(*) FROM dtm.DTM_PERFORMANCE_CAMPAGNE) AS dtm,
+       (SELECT COUNT(*) FROM dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE) AS dtm,
        (SELECT COUNT(*) FROM dwh.FAIT_CAMPAGNE)            AS dwh
 UNION ALL
 SELECT 'DTM_FRAIS_CAMPAGNE / FAIT_FRAIS',
-       (SELECT COUNT(*) FROM dtm.DTM_FRAIS_CAMPAGNE),
+       (SELECT COUNT(*) FROM dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE),
        (SELECT COUNT(*) FROM dwh.FAIT_FRAIS)
 UNION ALL
 SELECT 'DTM_CAPTURE_CAMPAGNE : captures / FAIT_CAPTURE (avec campagne)',
-       (SELECT SUM(nombre_captures) FROM dtm.DTM_CAPTURE_CAMPAGNE),
+       (SELECT SUM(nombre_captures) FROM dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE),
        (SELECT COUNT(*) FROM dwh.FAIT_CAPTURE WHERE campagne_id IS NOT NULL);
 
 --  les sommes doivent aussi etre identiques. Une jointure qui
 -- duplique des lignes gonflerait les montants sans faire d'erreur.
-SELECT (SELECT SUM(montant) FROM dtm.DTM_FRAIS_CAMPAGNE) AS frais_dtm,
+SELECT (SELECT SUM(montant) FROM dtm_performance_campagnes.DTM_FRAIS_CAMPAGNE) AS frais_dtm,
        (SELECT SUM(montant) FROM dwh.FAIT_FRAIS)         AS frais_dwh;
 
-SELECT (SELECT SUM(campagne_recette) FROM dtm.DTM_PERFORMANCE_CAMPAGNE) AS recette_dtm,
+SELECT (SELECT SUM(campagne_recette) FROM dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE) AS recette_dtm,
        (SELECT SUM(campagne_recette) FROM dwh.FAIT_CAMPAGNE)            AS recette_dwh;
 
-SELECT (SELECT SUM(poids_capture_total) FROM dtm.DTM_PERFORMANCE_CAMPAGNE) AS poids_perf_dtm,
-       (SELECT SUM(poids_capture)       FROM dtm.DTM_CAPTURE_CAMPAGNE)     AS poids_capture_dtm,
+SELECT (SELECT SUM(poids_capture_total) FROM dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE) AS poids_perf_dtm,
+       (SELECT SUM(poids_capture)       FROM dtm_performance_campagnes.DTM_CAPTURE_CAMPAGNE)     AS poids_capture_dtm,
        (SELECT SUM(capture_poids_entier_total) FROM dwh.FAIT_CAPTURE)      AS poids_dwh;
 
 -- le benefice doit valoir recette - depense. Un ecart
 -- n'est PAS corrige : la valeur de la source est conservee, l'ecart est
 -- signale pour analyse avec les metiers.
 SELECT COUNT(*) AS campagnes_en_ecart
-FROM dtm.DTM_PERFORMANCE_CAMPAGNE
+FROM dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE
 WHERE campagne_benefice IS NOT NULL
   AND campagne_recette  IS NOT NULL
   AND campagne_depense  IS NOT NULL
@@ -321,4 +357,4 @@ WHERE campagne_benefice IS NOT NULL
 SELECT SUM(CASE WHEN capitaine_id IS NULL THEN 1 ELSE 0 END) AS sans_capitaine,
        SUM(CASE WHEN annee IS NULL        THEN 1 ELSE 0 END) AS sans_date_debut,
        COUNT(*) AS total
-FROM dtm.DTM_PERFORMANCE_CAMPAGNE;
+FROM dtm_performance_campagnes.DTM_PERFORMANCE_CAMPAGNE;
