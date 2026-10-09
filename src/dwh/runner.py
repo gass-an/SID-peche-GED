@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
+
+from src.database.sql_script import execute_sql_script, split_sqlserver_batches
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATHS = {
@@ -11,7 +12,6 @@ SCRIPT_PATHS = {
     "sqlserver": Path("sql/sqlserver/dwh/init_dwh.sql"),
 }
 ENGINE_LABELS = {"postgresql": "PostgreSQL", "sqlserver": "SQL Server"}
-GO_SEPARATOR = re.compile(r"^\s*GO\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 def get_dwh_script_path(db_engine: str) -> Path:
@@ -26,26 +26,6 @@ def get_dwh_script_path(db_engine: str) -> Path:
     # PROJECT_ROOT est dérivé de ce module : le script reste accessible quel que
     # soit le répertoire courant utilisé pour lancer main.py.
     return PROJECT_ROOT / relative_path
-
-
-def split_sqlserver_batches(script: str) -> list[str]:
-    """Découpe un script uniquement sur les lignes constituées de GO."""
-    # GO est compris par les clients SQL Server, pas par le pilote pyodbc. Chaque
-    # bloc doit donc être envoyé séparément, sans couper un mot inclus dans du SQL.
-    return [batch.strip() for batch in GO_SEPARATOR.split(script) if batch.strip()]
-
-
-def _consume_result_sets(cursor: Any) -> None:
-    """Consomme les jeux de résultats sans interpréter leurs valeurs."""
-    while True:
-        # Les scripts contiennent notamment des requêtes de contrôle. Leurs
-        # résultats sont lus pour avancer dans le curseur, mais une valeur signalant
-        # des anomalies n'est pas interprétée et ne provoque donc pas d'erreur ici.
-        if getattr(cursor, "description", None) is not None:
-            cursor.fetchall()
-        nextset = getattr(cursor, "nextset", None)
-        if nextset is None or not nextset():
-            return
 
 
 def ensure_env_mer_exists(connection: Any, db_engine: str) -> None:
@@ -79,40 +59,12 @@ def run_dwh(connection: Any, db_engine: str) -> None:
     """
     engine = db_engine.strip().lower()
     script_path = get_dwh_script_path(engine)
-    script = script_path.read_text(encoding="utf-8")
     logging.info("Construction du DWH...")
     logging.info("Moteur : %s", ENGINE_LABELS[engine])
 
     try:
-        with connection.cursor() as cursor:
-            if engine == "postgresql":
-                # psycopg accepte le script PostgreSQL complet en une exécution.
-                cursor.execute(script)
-                _consume_result_sets(cursor)
-            else:
-                # Sous SQL Server, chaque lot délimité par GO est exécuté dans
-                # l'ordre. Le numéro journalisé localise précisément un échec.
-                for batch_number, batch in enumerate(
-                    split_sqlserver_batches(script), start=1
-                ):
-                    try:
-                        cursor.execute(batch)
-                        _consume_result_sets(cursor)
-                    except Exception:
-                        logging.exception(
-                            "Échec du batch SQL Server n°%d (%s)",
-                            batch_number,
-                            script_path,
-                        )
-                        raise
-        # Le commit indique que toutes les instructions se sont terminées sans
-        # exception. Il ne signifie pas que les valeurs retournées par les requêtes
-        # de contrôle satisfont des règles de qualité métier.
-        connection.commit()
+        execute_sql_script(connection, engine, script_path)
     except Exception:
-        # Une erreur annule l'ensemble de la construction afin de ne pas exposer
-        # un DWH partiellement reconstruit, puis elle remonte au pipeline principal.
-        connection.rollback()
         logging.exception(
             "Construction du DWH interrompue (moteur=%s, script=%s)",
             ENGINE_LABELS[engine],
