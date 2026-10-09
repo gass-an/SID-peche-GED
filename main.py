@@ -10,6 +10,7 @@ from src.config import TABLES, load_settings
 from src.database.connection import check_connection, connect
 from src.database.repository import find_json_columns, relation_statistics
 from src.database.schema import reset_tables, validate_reset_scope
+from src.dtm.runner import run_dtms
 from src.dwh.runner import ensure_env_mer_exists, run_dwh
 from src.extraction.peche_extractor import (
     DownloadResult,
@@ -23,8 +24,8 @@ from src.extraction.progress import format_count, format_duration
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Analyse et valide les arguments fournis sur la ligne de commande."""
     # Le mode par défaut enchaîne le téléchargement, la reconstruction de
-    # l'ODS puis celle du DWH. Les options permettent de reprendre le pipeline
-    # depuis les JSON ou depuis un ODS déjà construit.
+    # l'ODS, du DWH puis des DTM. Les options permettent de reprendre le pipeline
+    # à une étape précise ou depuis les JSON locaux.
     parser = argparse.ArgumentParser(description="Import des données de pêche Province Sud")
     parser.add_argument(
         "--depuis-json",
@@ -41,11 +42,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="construit uniquement le DWH depuis l'ODS existant",
     )
+    modes.add_argument(
+        "--dtm-only",
+        action="store_true",
+        help="construit uniquement les DTM depuis le DWH existant",
+    )
     args = parser.parse_args(argv)
-    # Le mode DWH ne lit aucun fichier source : lui associer --depuis-json
-    # serait contradictoire et signalerait probablement une erreur de commande.
-    if args.dwh_only and args.depuis_json:
-        parser.error("--dwh-only est incompatible avec --depuis-json/--from-json")
+    # Les modes DWH et DTM ne lisent aucun fichier source : leur associer le
+    # mode JSON serait contradictoire.
+    if (args.dwh_only or args.dtm_only) and args.depuis_json:
+        mode = "--dwh-only" if args.dwh_only else "--dtm-only"
+        parser.error(f"{mode} est incompatible avec --depuis-json/--from-json")
     return args
 
 
@@ -115,7 +122,7 @@ def run_ods(settings: object, args: argparse.Namespace, connection: object) -> t
     else:
         # L'instantané complet est publié sur disque avant toute modification
         # de la base ; un échec réseau préserve ainsi l'ODS actuel.
-        logging.info("Phase 1/2 : téléchargement de l'instantané JSON")
+        logging.info("Téléchargement de l'instantané JSON")
         with ProvinceSudClient(settings.api_key, settings.http_timeout) as client:
             downloads = download_tables(client, selected_tables, settings.raw_data_dir)
     # En mode local, ce nombre vaut zéro car le fichier ne permet pas de
@@ -175,12 +182,23 @@ def run(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         # La clé API n'est exigée que lorsqu'un téléchargement est prévu.
-        settings = load_settings(require_api_key=not (args.depuis_json or args.dwh_only))
+        settings = load_settings(
+            require_api_key=not (
+                args.depuis_json or args.dwh_only or args.dtm_only
+            )
+        )
     except ValueError as exc:
         logging.error("Configuration invalide : %s", exc)
         return 2
     try:
         with connect(settings) as connection:
+            if args.dtm_only:
+                # Les scripts vérifient eux-mêmes les tables DWH détaillées dont
+                # ils dépendent ; aucune reconstruction amont n'est déclenchée.
+                check_connection(connection)
+                run_dtms(connection, settings.db_engine)
+                return 0
+
             if args.dwh_only:
                 # Le DWH repose sur un ODS existant, contrôlé avant le lancement
                 # du script SQL sans relire les sources.
@@ -195,6 +213,7 @@ def run(argv: list[str] | None = None) -> int:
                 # la reconstruction et l'exécution des contrôles prévus sur l'ODS.
                 ensure_env_mer_exists(connection, settings.db_engine)
                 run_dwh(connection, settings.db_engine)
+                run_dtms(connection, settings.db_engine)
     except Exception as exc:
         # Toute erreur bloque les étapes suivantes et renvoie un code non nul
         # exploitable par un ordonnanceur ou un outil d'intégration.

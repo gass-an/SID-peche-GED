@@ -20,14 +20,31 @@ def test_from_json_option_has_french_and_english_names(monkeypatch) -> None:
     assert parse_args().depuis_json is True
 
 
-def test_ods_only_and_dwh_only_are_mutually_exclusive() -> None:
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--ods-only", "--dwh-only"],
+        ["--ods-only", "--dtm-only"],
+        ["--dwh-only", "--dtm-only"],
+    ],
+)
+def test_pipeline_only_modes_are_mutually_exclusive(options: list[str]) -> None:
     with pytest.raises(SystemExit):
-        parse_args(["--ods-only", "--dwh-only"])
+        parse_args(options)
 
 
 def test_dwh_only_and_from_json_are_incompatible() -> None:
     with pytest.raises(SystemExit):
         parse_args(["--dwh-only", "--depuis-json"])
+
+
+def test_dtm_only_and_from_json_are_incompatible() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--dtm-only", "--depuis-json"])
+
+
+def test_dtm_only_option_is_parsed() -> None:
+    assert parse_args(["--dtm-only"]).dtm_only is True
 
 
 def test_positional_table_is_no_longer_accepted() -> None:
@@ -45,11 +62,13 @@ def _mock_pipeline(monkeypatch):
     monkeypatch.setattr(main, "connect", Mock(return_value=connection))
     monkeypatch.setattr(main, "check_connection", Mock())
     monkeypatch.setattr(main, "ensure_env_mer_exists", Mock())
-    monkeypatch.setattr(
-        main, "run_ods", Mock(side_effect=lambda *_args: (events.append("ods") or ([], [])))
-    )
+    run_ods = Mock(side_effect=lambda *_args: (events.append("ods") or ([], [])))
+    monkeypatch.setattr(main, "run_ods", run_ods)
     monkeypatch.setattr(
         main, "run_dwh", Mock(side_effect=lambda *_args: events.append("dwh"))
+    )
+    monkeypatch.setattr(
+        main, "run_dtms", Mock(side_effect=lambda *_args: events.append("dtm"))
     )
     monkeypatch.setattr(main, "print_summary", Mock())
     return events
@@ -62,22 +81,32 @@ def test_dwh_only_skips_ods_and_does_not_require_api_key(monkeypatch) -> None:
     main.load_settings.assert_called_once_with(require_api_key=False)
 
 
+def test_dtm_only_skips_ods_and_dwh_and_does_not_require_api_key(monkeypatch) -> None:
+    events = _mock_pipeline(monkeypatch)
+    assert main.run(["--dtm-only"]) == 0
+    assert events == ["dtm"]
+    main.run_dwh.assert_not_called()
+    main.run_ods.assert_not_called()
+    main.load_settings.assert_called_once_with(require_api_key=False)
+
+
 def test_ods_only_skips_dwh(monkeypatch) -> None:
     events = _mock_pipeline(monkeypatch)
     assert main.run(["--ods-only"]) == 0
     assert events == ["ods"]
+    main.run_dtms.assert_not_called()
 
 
-def test_default_mode_runs_ods_then_dwh(monkeypatch) -> None:
+def test_default_mode_runs_ods_then_dwh_then_dtms(monkeypatch) -> None:
     events = _mock_pipeline(monkeypatch)
     assert main.run([]) == 0
-    assert events == ["ods", "dwh"]
+    assert events == ["ods", "dwh", "dtm"]
 
 
-def test_from_json_runs_ods_then_dwh(monkeypatch) -> None:
+def test_from_json_runs_ods_then_dwh_then_dtms(monkeypatch) -> None:
     events = _mock_pipeline(monkeypatch)
     assert main.run(["--depuis-json"]) == 0
-    assert events == ["ods", "dwh"]
+    assert events == ["ods", "dwh", "dtm"]
     assert main.run_ods.call_args.args[1].depuis_json is True
 
 
@@ -85,6 +114,7 @@ def test_from_json_with_ods_only_skips_dwh(monkeypatch) -> None:
     events = _mock_pipeline(monkeypatch)
     assert main.run(["--depuis-json", "--ods-only"]) == 0
     assert events == ["ods"]
+    main.run_dtms.assert_not_called()
 
 
 def test_run_ods_always_rebuilds_all_tables(monkeypatch, tmp_path) -> None:
@@ -125,3 +155,12 @@ def test_ods_failure_prevents_dwh(monkeypatch) -> None:
     assert main.run([]) == 1
     assert events == []
     main.run_dwh.assert_not_called()
+    main.run_dtms.assert_not_called()
+
+
+def test_dwh_failure_prevents_dtms(monkeypatch) -> None:
+    events = _mock_pipeline(monkeypatch)
+    main.run_dwh.side_effect = RuntimeError("DWH en erreur")
+    assert main.run([]) == 1
+    assert events == ["ods"]
+    main.run_dtms.assert_not_called()
