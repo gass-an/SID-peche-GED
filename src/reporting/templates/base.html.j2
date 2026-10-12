@@ -207,10 +207,8 @@ footer { margin-top: 32px; font-size: 12px; color: var(--text-muted); }
           return csvCell(cell.textContent.trim());
         }).join(";");
       });
-      var blob = new Blob(["﻿" + rows.join("
-") + "
-"],
-                          {type: "text/csv;charset=utf-8"});
+      var blob = new Blob(["\ufeff" + rows.join("\r\n") + "\r\n"],
+                    {type: "text/csv;charset=utf-8"});
       var url = URL.createObjectURL(blob);
       var link = document.createElement("a");
       link.href = url;

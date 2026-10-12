@@ -346,7 +346,7 @@ def activite(d: SidData, ref: pd.Timestamp) -> Theme:
     ]
     return Theme("activite", "Activité", "Quelles sorties en mer ?", kpis, cartes, [
         ("3.4.1", "Évolution du nombre de campagnes",
-         "Nombre de sorties de pêche par mois, filtrable par pêcheur."),
+         "Nombre de sorties de pêche par mois."),
         ("3.4.2", "Durée d'une campagne",
          "Jours entre début et fin ; vide si une date manque ou si la fin précède le début."),
         ("3.4.3", "Nombre et poids des captures par campagne",
@@ -381,7 +381,8 @@ def economique(d: SidData, ref: pd.Timestamp) -> Theme:
             delta=_delta(s["depense"], s1["depense"], ref)),
         Kpi("3.5.1", f"Bénéfice {ref.year}", format_compact(s["benefice"]), "XPF",
             delta=_delta(s["benefice"], s1["benefice"], ref)),
-        Kpi("3.5.1", "Marge", _pct(s["marge"]), detail=f"bénéfice / recette en {ref.year}"),
+        Kpi("3.5.2", "Recette moyenne par campagne",
+            format_compact(campagne["recette_moyenne"]), "XPF"),
         Kpi("3.5.1", "Bénéfice médian par pêcheur", format_compact(s["benefice_median_pecheur"]),
             "XPF", detail=f"{_pct(s['pecheurs_deficitaires'])} de pêcheurs déficitaires"),
         Kpi("3.5.2", "Bénéfice moyen par campagne", format_compact(campagne["benefice_moyen"]), "XPF",

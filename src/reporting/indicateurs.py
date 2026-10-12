@@ -544,7 +544,6 @@ def stats_campagnes(d: SidData, date_ref: pd.Timestamp, decalage: int = 0) -> di
         "recette": float(recette) if pd.notna(recette) else float("nan"),
         "depense": float(c["campagne_depense"].sum(min_count=1)),
         "benefice": float(benefice) if pd.notna(benefice) else float("nan"),
-        "marge": float(benefice / recette * 100) if recette else float("nan"),
         "benefice_median_pecheur": float(par_pecheur.median()) if len(par_pecheur) else float("nan"),
         "pecheurs_deficitaires": float((par_pecheur < 0).mean() * 100) if len(par_pecheur) else float("nan"),
     }

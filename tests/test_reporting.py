@@ -6,6 +6,7 @@ import pytest
 
 from src.reporting import build_report
 from src.reporting import indicateurs as ind
+from src.reporting import restitution
 from src.reporting.data import QUERIES, SidData, demo_data, fingerprint, load
 from src.reporting.formatting import format_compact, format_number
 
@@ -269,7 +270,14 @@ def test_report_contains_all_indicators_and_browser_csv_export(tmp_path) -> None
     assert "Durée" in html and "Jours en mer" in html and "Jours de pêche" in html
     assert 'data-csv-filename="campagnes_actives_2026-10-12.csv"' in html
     assert "Exporter en CSV" in html
-    assert 'join(";")' in html and "text/csv;charset=utf-8" in html
+    blob = (r'var blob = new Blob(["\ufeff" + rows.join("\r\n") + "\r\n"],' +
+            '\n                    {type: "text/csv;charset=utf-8"});')
+    assert html.count(blob) == 1
+    assert not re.search(r'rows\.join\("[^"\r\n]*[\r\n][^"]*"\)', html)
+    assert 'join(";")' in html
+    assert "Marge" not in html
+    assert "Recette moyenne par campagne" in html
+    assert "filtrable par pêcheur" not in html
     assert list(tmp_path.iterdir()) == [output]
     assert not list(tmp_path.glob("*.csv"))
 
@@ -342,6 +350,25 @@ def test_period_comparison_uses_same_period_last_year() -> None:
     assert s["recette"] == 230
     assert ind.variation(s["campagnes"], s1["campagnes"]) == 300
     assert pd.isna(ind.variation(5, 0))
+
+
+def test_economic_kpi_uses_average_revenue_per_campaign(monkeypatch) -> None:
+    original = ind.rentabilite_par_campagne
+
+    def profitability_with_distinct_average(d):
+        result = original(d)
+        result["recette_moyenne"] = 123_456
+        return result
+
+    monkeypatch.setattr(ind, "rentabilite_par_campagne", profitability_with_distinct_average)
+    theme = restitution.economique(_data(), REF)
+    kpi = next(item for item in theme.kpis
+               if item.label == "Recette moyenne par campagne")
+
+    assert kpi.code == "3.5.2"
+    assert kpi.value == format_compact(123_456)
+    assert kpi.unit == "XPF"
+    assert all(item.label != "Marge" for item in theme.kpis)
 
 
 def test_profit_bands_per_campaign() -> None:
